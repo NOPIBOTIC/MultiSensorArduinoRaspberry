@@ -50,6 +50,7 @@
   - mesure de la résistance interne de la charge, après arrêt du courant.
   - sortie liaison série RS485 pour communiquer avec un dispositif d'inteface homme-machine.
   - on retire la communication réseau, qui sera assurée par le dispositif d'IHM.
+  - on permute les pin 3 et 7 pour lecture débitmètre sur entrée interruption.
   A développer et tester pour vérifier la faisabilité.
   
   
@@ -59,7 +60,7 @@
 #include <FlashAsEEPROM.h>
 //#include <SPI.h>
 #include <SD.h>
-#include <Ethernet2.h>
+//#include <Ethernet2.h>
 #include <DS3231.h>
 
 
@@ -74,10 +75,10 @@ const int alimSens2_PIN = A6; // Sélection de l'alimentation à la borne 2 de l
 const int ON_OFF_POWER_PIN = 0; // Pilotage relais ON:OFF de l'alimentation
 const int voyant_PIN = 1; // Pilotage voyant externe 12V
 const int PWM_POWER_PIN = 2; // Commande PWM 10V de l'alimentation
-const int DEBITMETRE_PIN = 3; // Entrée impulsion du débitmère
+const int DEBITMETRE_PIN = 7; // Entrée impulsion du débitmère
 const int SS_SD = 4; // Pour carte SD
 const int SS_W5500 = 5; // Pour module Ethernet optionnel
-const int DIO1_PIN = 7; // IO générique
+//const int DIO1_PIN = 7; // IO générique
 const int DIO2_PIN = 6; // IO générique
 const int TX485_PIN = A1; // Sens du driver RS485
 const int ANALOG_PIN = A0; // Analog pin spare
@@ -178,7 +179,7 @@ void setup()
   pinMode(voyant_PIN, OUTPUT);
   pinMode(PWM_POWER_PIN, OUTPUT);
   pinMode(DEBITMETRE_PIN, INPUT);
-  pinMode(DIO1_PIN, INPUT);
+  //pinMode(DIO1_PIN, INPUT);
   pinMode(DIO2_PIN, INPUT);
   pinMode(cell_volt_mes_PIN, INPUT);
   pinMode(ANALOG_PIN, INPUT);
@@ -473,11 +474,11 @@ void LectureTrame(String str, int nb_values)
   char tempStr[50];
 
   /***************************************************************************/
-  if(str.startsWith("DATA-C1")) // Demande de données
+  if(str.startsWith("DATA-C2")) // Demande de données
   {
     GetClock();
     digitalWrite(TX485_PIN, 1); // Mode TX
-    LaisonRPi.print("DATA-C1");
+    LaisonRPi.print("DATA-C2");
     LaisonRPi.print("," + String(Date));
     LaisonRPi.print(" " + String(Month));
     LaisonRPi.print(" " + String(Year));
@@ -504,7 +505,7 @@ void LectureTrame(String str, int nb_values)
     digitalWrite(TX485_PIN, 0); // Mode RX
   }
   /***************************************************************************/
-  else if(str.startsWith("PARAM-C1,")) // Réception de paramètres
+  else if(str.startsWith("PARAM-C2,")) // Réception de paramètres
   {
     // Réception de nouveaux params
     LaisonDebug.println("Reception de params");
@@ -536,7 +537,7 @@ void LectureTrame(String str, int nb_values)
   }
   /***************************************************************************/
   else if(str.startsWith("SETDATE")) // Réglage de la RTC
-  //SETDATEYYMMDDdHHMMSS\n
+  //SETDATEYYMMDDHHMMSS\n
   {
     LaisonDebug.println("Reglages DATE & HEURE");
     Temp1 = (byte)rxTab[7+0] - 48;
@@ -553,22 +554,22 @@ void LectureTrame(String str, int nb_values)
     // now Day of Week
     DoW = (byte)rxTab[7+6] - 48;   
     // now Hour
-    Temp1 = (byte)rxTab[7+7] - 48;
-    Temp2 = (byte)rxTab[7+8] - 48;
+    Temp1 = (byte)rxTab[7+6] - 48;
+    Temp2 = (byte)rxTab[7+7] - 48;
     Hour = Temp1*10 + Temp2;
     // now Minute
-    Temp1 = (byte)rxTab[7+9] - 48;
-    Temp2 = (byte)rxTab[7+10] - 48;
+    Temp1 = (byte)rxTab[7+8] - 48;
+    Temp2 = (byte)rxTab[7+9] - 48;
     Minute = Temp1*10 + Temp2;
     // now Second
-    Temp1 = (byte)rxTab[7+11] - 48;
-    Temp2 = (byte)rxTab[7+12] - 48;
+    Temp1 = (byte)rxTab[7+10] - 48;
+    Temp2 = (byte)rxTab[7+11] - 48;
     Second = Temp1*10 + Temp2;
     rtc.setClockMode(false);  // set to 24h
     rtc.setYear(Year);
     rtc.setMonth(Month);
     rtc.setDate(Date);
-    rtc.setDoW(DoW);
+    //rtc.setDoW(DoW);
     rtc.setHour(Hour);
     rtc.setMinute(Minute);
     rtc.setSecond(Second);
