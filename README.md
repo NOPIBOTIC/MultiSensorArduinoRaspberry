@@ -2,7 +2,6 @@
 
 ## Arduino
 B021-012-B_Multicapteur: Arduino code for MKR Zero installed on B021-012-B.
-UNO-TEST-ACTIVEO: Arduino code for UNO, for Raspberry communication testing purpose.
 
 ## Windows
 ActiveO Control v2.0: Windows software for ActiveO board control
