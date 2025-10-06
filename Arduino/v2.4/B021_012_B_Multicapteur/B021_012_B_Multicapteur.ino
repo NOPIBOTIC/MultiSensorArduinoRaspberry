@@ -93,9 +93,6 @@
 
 /***************************************************************************************/
 
-// Il faut défnir l'adresse de la carte avant téléchargement du programme
-#define adresse '1'
-
 // Message de bienvenue sur la liaison débug
 #define WELCOME_1 "*********************************"
 #define WELCOME_2 "*********************************"
@@ -113,6 +110,8 @@
 #define DEFAUT_DEBIT_MAX 2000 // L/h
 #define DEFAUT_COURANT_MIN 1.0 // A
 #define DEFAUT_COURANT_MAX 8.0 // A
+#define DEFAUT_OFFSET_COURANT 2.5 // A
+
 
 /***************************************************************************************/
 
@@ -123,6 +122,7 @@
 #include <SD.h>
 //#include <Ethernet2.h>
 #include <DS3231.h>
+#include <Adafruit_MCP23X17.h>
 
 
 //#define W5500_OK
@@ -187,7 +187,18 @@ byte Second;
 byte Temp1, Temp2, Temp3, Temp4;
 const char jour[8][10] = {"UNDEFINED", "DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI", "SAMEDI"};
 
+// Multiplexeur de GPIO
+Adafruit_MCP23X17 mcp;
+#define OC_1_PIN 0
+#define OC_2_PIN 1
+#define RELAY_1_PIN 2
+#define RELAY_2_PIN 3
+#define RELAY_3_PIN 4
+#define ADD_0_PIN 5
+#define ADD_1_PIN 6
+
 // Variables commandes et capteurs
+char cellule = '1'; // Adresse de la  cellule de 1 à 4, réglée par les jumpers
 double currentCommand, current, currentFiltered; // de 0 à 30 A
 #define COEFF_FILTRAGE_CURRENT 10
 double cellVoltage; // Tension dans la cellule
@@ -310,6 +321,33 @@ void setup()
   // Position de départ relais sens courant
   alimSens1 = 1;
   alimSens2 = 0;
+
+  // Test MCP
+  // Init MCP
+  if(!mcp.begin_I2C()) LaisonDebug.println("Erreur MCP initialisation");
+  else LaisonDebug.println("MCP ok");
+  LaisonDebug.println("Test MCP");
+  mcp.pinMode(OC_1_PIN, OUTPUT);
+  mcp.pinMode(OC_2_PIN, OUTPUT);
+  mcp.pinMode(RELAY_1_PIN, OUTPUT);
+  mcp.pinMode(RELAY_2_PIN, OUTPUT);
+  mcp.pinMode(RELAY_3_PIN, OUTPUT);
+  mcp.pinMode(ADD_0_PIN, INPUT_PULLUP);
+  mcp.pinMode(ADD_1_PIN, INPUT_PULLUP);
+
+  if(mcp.digitalRead(ADD_0_PIN) == 1 && mcp.digitalRead(ADD_1_PIN) == 1) cellule = '1';
+  else if(mcp.digitalRead(ADD_0_PIN) == 0 && mcp.digitalRead(ADD_1_PIN) == 1) cellule = '2';
+  else if(mcp.digitalRead(ADD_0_PIN) == 1 && mcp.digitalRead(ADD_1_PIN) == 0) cellule = '3';
+  else if(mcp.digitalRead(ADD_0_PIN) == 0 && mcp.digitalRead(ADD_1_PIN) == 0) cellule = '4';
+  LaisonDebug.print("Adresse cellule = "); LaisonDebug.println(cellule);
+
+  /*/
+  delay(500); mcp.digitalWrite(OC_1_PIN, 1); mcp.digitalWrite(OC_2_PIN, 0);
+  delay(500); mcp.digitalWrite(OC_1_PIN, 1); mcp.digitalWrite(OC_2_PIN, 1);
+  delay(500); mcp.digitalWrite(OC_1_PIN, 0); mcp.digitalWrite(OC_2_PIN, 1);
+  delay(500); mcp.digitalWrite(OC_1_PIN, 0); mcp.digitalWrite(OC_2_PIN, 0);
+  /**/
+
 
 }
 
@@ -551,11 +589,12 @@ void LectureTrame(String str, int nb_values)
   /***************************************************************************/
   if(str.startsWith("DATA-C")) // Demande de données
   {
-    if(str[6] == adresse)
+    if(str[6] == cellule)
     {
       GetClock();
 
-      sprintf(tempStr, "%02d%02d%02d,%02d%02d%02d,%d,%.1lf,%.1lf,%.1lf,%d,%d,%d,%d,%d,%.1lf,%.3lf,%d,%d,%.1lf,%.1lf\n",
+      sprintf(tempStr, "DATA-C%c,%02d%02d%02d,%02d%02d%02d,%d,%.1lf,%.1lf,%.1lf,%d,%d,%d,%d,%d,%.1lf,%.3lf,%d,%d,%.1lf,%.1lf\n",
+        cellule,
         Date, Month, Year, Hour, Minute, Second,
         (int)debitFiltered,
         currentCommand,
@@ -573,8 +612,8 @@ void LectureTrame(String str, int nb_values)
         params.val.courantMin,
         params.val.courantMax);
       digitalWrite(TX485_PIN, 1); // Mode TX
-      if(adresse == '1') LaisonRPi.print("DATA-C1,");
-      if(adresse == '2') LaisonRPi.print("DATA-C2,");
+      //if(cellule == '1') LaisonRPi.print("DATA-C1,");
+      //if(cellule == '2') LaisonRPi.print("DATA-C2,");
       LaisonRPi.print(tempStr);
       delay(50);
       digitalWrite(TX485_PIN, 0); // Mode RX
@@ -583,7 +622,7 @@ void LectureTrame(String str, int nb_values)
   /***************************************************************************/
   else if(str.startsWith("PARAM-C")) // Réception de paramètres
   {
-    if(str[7] == adresse)
+    if(str[7] == cellule)
     {
       // Réception de nouveaux params
       LaisonDebug.println("Reception de params");
@@ -662,6 +701,8 @@ void LectureTrame(String str, int nb_values)
   else if(str.startsWith("CDE-C"))
   //
   {
+    // On ne teste pas l'adresse ici car les commandes suivantes sont en broadcast
+
     // Réception d'une commande
     LaisonDebug.println("Reception de commande");
     if(str.endsWith("ON\n")) // Activation alimentation
@@ -686,7 +727,24 @@ void LectureTrame(String str, int nb_values)
       params.val.currentZero = (double)analogRead(current_mes_PIN);
       params.val.currentZero = params.val.currentZero * 3.3 / 1023;
       params.val.currentZero = params.val.currentZero * 2;
+      LaisonDebug.print("Current Zero = "); LaisonDebug.println(params.val.currentZero);
       SaveParams();
+    }
+
+
+    // On vérifie l'adresse car les commandes suivantes ne sont pas en broadcast
+    if(str[5] == cellule)
+    {
+      if(str.endsWith("OC1,1\n")) mcp.digitalWrite(OC_1_PIN, 1); // Sortie collecteur ouvert 1 ON
+      if(str.endsWith("OC1,0\n")) mcp.digitalWrite(OC_1_PIN, 0); // Sortie collecteur ouvert 1 OFF
+      if(str.endsWith("OC2,1\n")) mcp.digitalWrite(OC_2_PIN, 1); // Sortie collecteur ouvert 2 ON
+      if(str.endsWith("OC2,0\n")) mcp.digitalWrite(OC_2_PIN, 0); // Sortie collecteur ouvert 2 OFF
+      if(str.endsWith("RL1,1\n")) mcp.digitalWrite(RELAY_1_PIN, 1); // Relais 1 ON
+      if(str.endsWith("RL1,0\n")) mcp.digitalWrite(RELAY_1_PIN, 0); // Relais 1 OFF
+      if(str.endsWith("RL2,1\n")) mcp.digitalWrite(RELAY_2_PIN, 1); // Relais 2 ON
+      if(str.endsWith("RL2,0\n")) mcp.digitalWrite(RELAY_2_PIN, 0); // Relais 2 OFF
+      if(str.endsWith("RL3,1\n")) mcp.digitalWrite(RELAY_3_PIN, 1); // Relais 3 ON
+      if(str.endsWith("RL3,0\n")) mcp.digitalWrite(RELAY_3_PIN, 0); // Relais 3 OFF
     }
   }
 }
@@ -789,7 +847,7 @@ void ReadParams(void)
     params.val.debitMax = DEFAUT_DEBIT_MAX;
     params.val.courantMin = DEFAUT_COURANT_MIN;
     params.val.courantMax = DEFAUT_COURANT_MAX;
-    params.val.currentZero = 0;
+    params.val.currentZero = DEFAUT_OFFSET_COURANT;
 
     SaveParams();
   }
