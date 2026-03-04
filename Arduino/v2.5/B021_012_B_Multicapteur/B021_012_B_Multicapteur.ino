@@ -81,13 +81,34 @@
   - Les commandes ON/OFF/SENS/CURRENTZERO sont boardcast.
   - Déplacement de la sortie TX485 de A1 à 1
   - A0, A1, A4 sont les entrées 4-20mA ou 0-10V, sélectionnable par jumper.
-    4-20mA en passant dans une résustance de 165R, soit 0-3.3V
+    4-20mA en passant dans une résistance de 165R, soit 0-3.3V
     0-10V en passant par un pont diviseur de rapport 11 
   - Ajout d’un demultiplexeur de GPIO MCP23017, et interruptions sur 3 et 6
     Ce démux permet de piloter les relais et sorties collecteur ouvert de spare.
     Le code de pilotage de ces sorties est à ajouter.
     Le MCP23017 est à l'adresse i2C 0x20.
+
+  ------------------------------------------------------------
+  v2.5
+  03/03/2025
+  Pierrick SERRES
+  - Sorties analogiques à la fin de la trame.
+    Pour chaque entrée analogique, avec le jumper on choisit le type de capteur entre 4-20mA ou 0/10V
+    Si on est en 4-20mA, on met le jumper :
+      Le jumper permet d'avoir une résistance de 165R vers la masse, pour convertir le courant en tension.
+      Donc la tension varie entre 4mA x 165R = 660mV et 20mA x 165R = 3.3V
+      Donc la valeur mesurée sur l'AD varie de 205 (pour 4mA) à 1023 (pour 20mA)
+    Si on ets en 0/10V, on ne mets pas le jumper :
+      L'absence du jumper permet d'avoir un pont diviseur de rapport 11 (1.65k et 165R)
+      Donc la tension varie entre 0 / 11 = 0mV et 10 / 11 = 909mV
+      Donc la valeur mesurée sur l'AD varie de 0 (pour 0V) à 281 (pour 10V)
+      (A noter pour l'avenir qu'un rapport de 11 c'est trop, il faudrait un rapport 3
+      avec une résistance 330R à la place de la 1.65k)
+
+
+      
   
+
 ***************************************************************************************/
 
 
@@ -97,7 +118,7 @@
 #define WELCOME_1 "*********************************"
 #define WELCOME_2 "*********************************"
 #define WELCOME_3 "*****  MULTI SENSOR CONTROL *****"
-#define WELCOME_4 "*****         v2.4          *****"
+#define WELCOME_4 "*****         v2.5          *****"
 #define WELCOME_5 "*****   by Pierrick SERRES  *****"
 #define WELCOME_6 "*********************************"
 #define WELCOME_7 "*********************************"
@@ -214,6 +235,7 @@ int etapeInversion;
 int timerInversion;
 int timerSD;
 int timerEtapeInversion;
+unsigned int AN0_Value, AN1_Value, AN4_Value; // Entrées analogiques supplémentaires
 
 /* Variables EEPROM */
 #define PARAM_VALID_VALUE 31
@@ -252,6 +274,9 @@ void setup()
   pinMode(MCP_INTB, OUTPUT);
   pinMode(TX485_PIN, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(analogIn0, INPUT);
+  pinMode(analogIn1, INPUT);
+  pinMode(analogIn4, INPUT);
   
   digitalWrite(TX485_PIN, 0); // Mode RX
     
@@ -412,7 +437,6 @@ void loop()
       debit = 0;
       digitalWrite(LED_BUILTIN, 0);
     }
-    //else debit = analogRead(ANALOG_PIN)/3; // pour tests
 
     LectureCapteurs();
     
@@ -538,6 +562,9 @@ void PulsesCount()
   300.0     : Débit maximum de la fonction affine Courant = f(Débit), en l/h.
   2.0       : Courant minimum de la fonction affine Courant = f(Débit), en A.
   25.0      : Courant maximum de la fonction affine Courant = f(Débit), en A.
+  1023      : Convertion analogique entrée 1 type 4-20mA ou 0/10V (de 0 à 1023)
+  1023      : Convertion analogique entrée 2 type 4-20mA ou 0/10V (de 0 à 1023)
+  1023      : Convertion analogique entrée 3 type 4-20mA ou 0/10V (de 0 à 1023)
   <LF>      : Caractère de fin de trame, 0x0A.
 
   CDE-Cx,[commande]<LF>
@@ -593,7 +620,7 @@ void LectureTrame(String str, int nb_values)
     {
       GetClock();
 
-      sprintf(tempStr, "DATA-C%c,%02d%02d%02d,%02d%02d%02d,%d,%.1lf,%.1lf,%.1lf,%d,%d,%d,%d,%d,%.1lf,%.3lf,%d,%d,%.1lf,%.1lf\n",
+      sprintf(tempStr, "DATA-C%c,%02d%02d%02d,%02d%02d%02d,%d,%.1lf,%.1lf,%.1lf,%d,%d,%d,%d,%d,%.1lf,%.3lf,%d,%d,%.1lf,%.1lf,%d,%d,%d\n",
         cellule,
         Date, Month, Year, Hour, Minute, Second,
         (int)debitFiltered,
@@ -610,7 +637,10 @@ void LectureTrame(String str, int nb_values)
         (int)params.val.debitMin,
         (int)params.val.debitMax,
         params.val.courantMin,
-        params.val.courantMax);
+        params.val.courantMax,
+        AN0_Value,
+        AN1_Value,
+        AN4_Value);
       digitalWrite(TX485_PIN, 1); // Mode TX
       //if(cellule == '1') LaisonRPi.print("DATA-C1,");
       //if(cellule == '2') LaisonRPi.print("DATA-C2,");
@@ -785,6 +815,12 @@ void LectureCapteurs(void)
   cellVoltage = (double)analogRead(cell_volt_mes_PIN);
   cellVoltage = cellVoltage * 3.3 / 1023; // tension sur l'entrée AD
   cellVoltage = cellVoltage * 11; // tension avant pont diviseur
+
+  // Lecture des entrée analogiques 4-20mA ou 0/10V
+  AN0_Value = analogRead(analogIn0);
+  AN1_Value = analogRead(analogIn1);
+  AN4_Value = analogRead(analogIn4);
+
 
 }
 
